@@ -145,7 +145,7 @@ class Trainer(object):
         self.train_loader, self.val_loader, self.test_loader, self.memory_loader = self.set_data()
 
         total_itrs = self.opts.train_epoch * len(self.train_loader)
-        val_interval = max(100, total_itrs // 100)
+        val_interval = 40 #max(100, total_itrs // 100)
         print(f"... train epoch : {self.opts.train_epoch} , iterations : {total_itrs} , val_interval : {val_interval}")
 
         avg_loss = AverageMeter()
@@ -255,27 +255,35 @@ class Trainer(object):
     
 
     def eval(self, metrics):
-        if self.curr_step > 0:
-            print("... Testing Best Model")
-            best_ckpt = self.ckpt_str % (self.opts.model, self.opts.dataset, self.opts.task, self.curr_step)
-            
-            checkpoint = torch.load(best_ckpt, map_location=torch.device('cpu'))
-            self.model.load_state_dict(checkpoint["model_state"], strict=True)
-            self.model.eval()
-            self.parallel_model = nn.DataParallel(self.model)
-            self.parallel_model.eval()
-            
-            test_score = self.validate(metrics=metrics, loader=self.test_loader)
-            print(metrics.to_str(test_score))
+        # if self.curr_step > 0:
+        print("... Testing Best Model")
+        best_ckpt = self.ckpt_str % (self.opts.model, self.opts.dataset, self.opts.task, self.curr_step)
+        
+        checkpoint = torch.load(best_ckpt, map_location=torch.device('cpu'))
+        self.model.load_state_dict(checkpoint["model_state"], strict=True)
+        self.model.eval()
+        self.parallel_model = nn.DataParallel(self.model)
+        self.parallel_model.eval()
+        
+        test_score = self.validate(metrics=metrics, loader=self.test_loader)
+        print(metrics.to_str(test_score))
 
-            class_iou = list(test_score['Class IoU'].values())
-            class_acc = list(test_score['Class Acc'].values())
-            first_cls = len(get_tasks(self.opts.dataset, self.opts.task, 0))
+        class_iou = list(test_score['Class IoU'].values())
+        class_acc = list(test_score['Class Acc'].values())
+        first_cls = len(get_tasks(self.opts.dataset, self.opts.task, 0))
+
+        if self.curr_step > 0:
 
             print(f"...from 0 to {first_cls-1} : best/test_before_mIoU : %.6f" % np.mean(class_iou[:first_cls]))
             print(f"...from {first_cls} to {len(class_iou)-1} best/test_after_mIoU : %.6f" % np.mean(class_iou[first_cls:]))
             print(f"...from 0 to {first_cls-1} : best/test_before_acc : %.6f" % np.mean(class_acc[:first_cls]))
-            print(f"...from {first_cls} to {len(class_iou)-1} best/test_after_acc : %.6f" % np.mean(class_acc[first_cls:]))       
+            print(f"...from {first_cls} to {len(class_iou)-1} best/test_after_acc : %.6f" % np.mean(class_acc[first_cls:]))    
+            print(f"...overall mIOU: %.6f" % np.mean(class_iou))   
+            print(f"...overall acc: %.6f" % np.mean(class_acc))  
+        else:
+            print(f"...overall mIOU: %.6f" % np.mean(class_iou))   
+            print(f"...overall acc: %.6f" % np.mean(class_acc))      
+        return class_acc, class_iou      
 
     def validate(self, metrics, loader):
         """Do validation and return specified samples"""
