@@ -7,6 +7,7 @@ from .factory import get_backbone, get_aspp, get_head
 from arguments import get_argparser
 import copy
 from collections import OrderedDict
+from copy import deepcopy
 
 opts = get_argparser().parse_args()
 
@@ -32,25 +33,45 @@ class Net(nn.Module):
 
         self.num_classes = 2
         
-    def forward(self, x):
-        input_shape = x.shape[-2:]
-        x = self.backbone(x)['out']
-        # x = [aspp(x) for aspp in self.aspp_layers]
-        if False:
-            x = torch.cat(x, 1)
-            x =  [h(x) for h in self.heads]
-            x = torch.cat(x, dim=1)
+    def forward(self, x, t, s, pseudo=False):
+        if self.training or pseudo:
+            # print("Training task:", t)
+            input_shape = x.shape[-2:]
+            x, mask = self.backbone(x, t, s)
+            # x = [aspp(x) for aspp in self.aspp_layers]
+            if False:
+                x = torch.cat(x, 1)
+                x =  [h(x) for h in self.heads]
+                x = torch.cat(x, dim=1)
+            else:
+                outs = [aspp(x) for aspp in self.aspp_layers]
+                x = [head(outs[i]) for i,head in enumerate(self.heads)]
+                x = torch.cat(x, dim=1)
+            x = F.interpolate(x, size=input_shape, mode='bilinear', align_corners=False)
         else:
-            outs = [aspp(x) for aspp in self.aspp_layers]
+            input_shape = x.shape[-2:]
+            features = []
+            for i in range(t+1):
+                # print("Testing task:", i)
+                fea, mask = self.backbone(x, i, s)
+                features.append(fea)
+            outs = []
+            for i,aspp in enumerate(self.aspp_layers):
+                if i == 1 or i == 0:
+                    outs.append(aspp(features[0]))
+                else:
+                    outs.append(aspp(features[i-2]))
+            # outs = [aspp(features[i]) for i,aspp in enumerate(self.aspp_layers)]
             x = [head(outs[i]) for i,head in enumerate(self.heads)]
             x = torch.cat(x, dim=1)
-        x = F.interpolate(x, size=input_shape, mode='bilinear', align_corners=False)
-        return x
+            x = F.interpolate(x, size=input_shape, mode='bilinear', align_corners=False)
+            
+        return x, mask
 
     def copy(self):
         return copy.deepcopy(self)
 
-    def add_classes(self, n_classes, weight_transfer=True):
+    def add_classes(self, n_classes, weight_transfer=True, t=None):
         self.num_classes += n_classes
 
         new_aspp = get_aspp(self.output_stride)
@@ -72,11 +93,24 @@ class Net(nn.Module):
         self.aspp_layers.append(new_aspp)
         self.heads.append(new_head)
 
+        if t:
+            sd = self.backbone.state_dict()
+            for p in sd:
+                if "ec" in p:
+                    sd[p][t] = deepcopy(sd[p][t-1])
+            self.backbone.load_state_dict(sd)
+
+
     def freeze(self, freeze=True):
         if freeze:
             training_params = []
             for param in self.parameters():
                 param.requires_grad = False
+
+            for param in self.backbone.parameters():
+                param.requires_grad = True
+            training_params.append({'params': self.backbone.parameters(), 'lr': opts.lr})
+
 
             #last head
             for param in self.aspp_layers[-1].parameters():

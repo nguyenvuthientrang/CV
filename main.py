@@ -12,6 +12,8 @@ import time
 import random
 import numpy as np
 import cv2
+import itertools
+from copy import deepcopy
 
 from torch.utils import data
 from arguments import get_argparser
@@ -32,10 +34,20 @@ from networks import network
 torch.backends.cudnn.benchmark = True
 
 opts = get_argparser().parse_args()
-if opts.approach == 'karina':
-    from trainers.karina import Trainer
+if opts.approach == 'hat_ss':
+    from trainers.hat_ss import Trainer
 elif opts.approach == 'ssul':
     from trainers.ssul import Trainer
+
+########################################################################################################################
+
+log_name = '{}_{}_{}_{}_model_{}_smax_{}_lamb_{}_epoch_{}_batchsize_{}_memsize_{}_lr{}'.format(opts.dataset, opts.task, opts.approach, opts.random_seed,
+                                                                    opts.model, opts.smax, opts.lamb, opts.train_epoch, opts.batch_size, 
+                                                                    opts.mem_size, opts.lr)
+
+output = opts.dataset + '/' + opts.task + '/' + opts.approach + '/' + log_name + '.txt'
+
+########################################################################################################################
 
 os.environ['CUDA_VISIBLE_DEVICES'] = opts.gpu_id
 
@@ -72,6 +84,10 @@ trainer = Trainer(opts, model, device)
 
 utils.mkdir('checkpoints')
 
+cls_num = len(list(itertools.chain(*list(get_tasks('voc', '15-1').values()))))
+t_num = len(get_tasks('voc', '15-1'))
+acc=np.zeros((t_num, cls_num),dtype=np.float32)
+miou=np.zeros((t_num, cls_num),dtype=np.float32)
 for step in range(start_step, total_step):
     curr_step = step 
     # bn_freeze = opts.bn_freeze if curr_step > 0 else False
@@ -94,7 +110,7 @@ for step in range(start_step, total_step):
     metrics = StreamSegMetrics(sum(num_classes)-1 if opts.unknown else sum(num_classes), dataset=opts.dataset)
 
     # Set up optimizer & parameters
-    trainer.add_classes(num_classes[-1])
+    trainer.add_classes(num_classes[-1], curr_step)
 
     print("----------- trainable parameters --------------")
     for name, param in trainer.model.named_parameters():
@@ -104,6 +120,17 @@ for step in range(start_step, total_step):
 
     trainer.train(metrics,curr_idx=curr_idx)
     print("... Training Done")
-    trainer.eval(metrics)
+    class_acc, class_iou = trainer.eval(metrics)
+    acc[curr_step,:len(class_acc)] = deepcopy(class_acc)
+    miou[curr_step,:len(class_iou)] = deepcopy(class_iou)
+print('Save at '+output)
+print(acc)
+print(miou)
+if not os.path.isdir("./result_data/acc/" + opts.dataset + '/' + opts.task + '/' + opts.approach + '/'):
+    os.makedirs("./result_data/acc/" + opts.dataset + '/' + opts.task + '/' + opts.approach + '/')
+    os.makedirs("./result_data/miou/" + opts.dataset + '/' + opts.task + '/' + opts.approach + '/')
+np.savetxt("./result_data/acc/" + output,acc,'%.4f')
+np.savetxt("./result_data/miou/" + output,miou,'%.4f')
+
 
         

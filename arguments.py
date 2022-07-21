@@ -54,8 +54,8 @@ def get_argparser():
                         help="epoch interval for eval (default: 100)")
     
     # CIL options
-    parser.add_argument("--approach", type=str, default='karina',
-                        choices=['karina', 'ssul'], help='approach')
+    parser.add_argument("--approach", type=str, default='hat_ss',
+                        choices=['hat_ss', 'ssul'], help='approach')
     parser.add_argument("--pseudo", action='store_true', help="enable pseudo-labeling")
     parser.add_argument("--pseudo_thresh", type=float, default=0.7, help="confidence threshold for pseudo-labeling")
     parser.add_argument("--task", type=str, default='15-1', help="cil task")
@@ -66,5 +66,14 @@ def get_argparser():
     parser.add_argument("--bn_freeze", action='store_true', help="enable batchnorm freezing")
     parser.add_argument("--w_transfer", action='store_true', help="enable weight transfer")
     parser.add_argument("--unknown", action='store_true', help="enable unknown modeling")
-    
+
+    #Dropouts
+    parser.add_argument("--head_dropout", type=float, default=0.25)
+    parser.add_argument("--conv_dropout", type=float, default=0.25) 
+    parser.add_argument("--lin_dropout", type=float, default=0.25)
+    parser.add_argument("--prj_dropout", type=float, default=0.25)
+
+    #HAT
+    parser.add_argument("--smax", type=int, default=400)
+    parser.add_argument("--lamb", type=float, default=0.25)   
     return parser

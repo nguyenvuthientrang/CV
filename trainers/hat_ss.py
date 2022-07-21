@@ -10,6 +10,11 @@ from utils.memory import memory_sampling_balanced
 from utils.utils import AverageMeter
 import numpy as np
 from utils.tasks import get_tasks
+from utils.mask import *
+from arguments import get_argparser
+from utils.optimizer import *
+
+opts = get_argparser().parse_args()
 
 
 class Trainer(object):
@@ -33,11 +38,23 @@ class Trainer(object):
             self.ckpt_str = "checkpoints/%s_%s_%s_step_%d_disjoint.pth"
         self.fg_idx = 1 if opts.unknown else 0
 
+        self.mask_pre=None
+        self.mask_back=None
+        self.smax=opts.smax  
+
         return
 
 
     def set_optimizer(self, training_params):
-        optimizer = torch.optim.SGD(params=training_params, 
+        # if opts.modified_optim:
+        if False:
+            optimizer = torch.optim.SGD_hat(params=training_params, 
+                        lr=self.opts.lr, 
+                        momentum=0.9, 
+                        weight_decay=self.opts.weight_decay,
+                        nesterov=True)
+        else:
+            optimizer = torch.optim.SGD(params=training_params, 
                                 lr=self.opts.lr, 
                                 momentum=0.9, 
                                 weight_decay=self.opts.weight_decay,
@@ -45,7 +62,7 @@ class Trainer(object):
         return optimizer
 
 
-    def add_classes(self, n_classes):
+    def add_classes(self, n_classes, t=None):
         self.curr_step += 1
         self.model_old = deepcopy(self.model)
         for param in self.model_old.parameters():
@@ -54,7 +71,7 @@ class Trainer(object):
         #load unknown vao head moi va load aspp gan nhat vao aspp moi
         #freeze model
         if self.curr_step > 0:
-            self.model.add_classes(n_classes, True)
+            self.model.add_classes(n_classes, True,t)
             training_params = self.model.freeze(True) #freeze and return training params
         else:
             self.model.add_classes(n_classes, False)
@@ -127,7 +144,7 @@ class Trainer(object):
         return scheduler
 
 
-    def train(self, metrics, curr_idx):
+    def train(self, metrics, curr_idx, thres_cosh=50,thres_emb=6):
         self.model = self.model.to(self.device)
         self.model.train()
         self.parallel_model = nn.DataParallel(self.model)
@@ -145,7 +162,7 @@ class Trainer(object):
         self.train_loader, self.val_loader, self.test_loader, self.memory_loader = self.set_data()
 
         total_itrs = self.opts.train_epoch * len(self.train_loader)
-        val_interval = max(100, total_itrs // 100)
+        val_interval = 40 #max(100, total_itrs // 100)
         print(f"... train epoch : {self.opts.train_epoch} , iterations : {total_itrs} , val_interval : {val_interval}")
 
         avg_loss = AverageMeter()
@@ -175,6 +192,11 @@ class Trainer(object):
             images = images.to(self.device, dtype=torch.float32, non_blocking=True)
             labels = labels.to(self.device, dtype=torch.long, non_blocking=True)
             sal_maps = sal_maps.to(self.device, dtype=torch.long, non_blocking=True)
+            s=(self.smax-1/self.smax)*((cur_itrs%len(self.train_loader))/len(self.train_loader))+1/self.smax
+            # print("\nsmax:", self.smax)
+            # print("Batch:", cur_itrs%len(self.train_loader))
+            # print("Total batch:", len(self.train_loader))
+            # print("s:", s)
 
 
             if self.curr_step > 0 and self.opts.mem_size > 0:
@@ -196,12 +218,13 @@ class Trainer(object):
             """ forwarding and optimization """
             with torch.cuda.amp.autocast(enabled=self.opts.amp):
                 
-                outputs = self.parallel_model(images)
+                outputs, mask = self.parallel_model(images, self.curr_step, s=s)
 
                 if self.opts.pseudo and self.curr_step > 0:
                     """ pseudo labeling """
+                    # print("Pseudo label")
                     with torch.no_grad():
-                        outputs_prev = self.parallel_model_old(images)
+                        outputs_prev, _ = self.parallel_model_old(images, self.curr_step-1, s=self.smax)
 
                     if self.opts.loss_type == 'bce_loss':
                         pred_prob = torch.sigmoid(outputs_prev).detach()
@@ -212,15 +235,40 @@ class Trainer(object):
                     pseudo_labels = torch.where( (labels <= self.fg_idx) & (pred_labels > self.fg_idx) & (pred_scores >= self.opts.pseudo_thresh), 
                                                 pred_labels, 
                                                 labels)
-                        
-                    loss = self.criterion(outputs, pseudo_labels)
+                    
+                    # print(pseudo_labels)
+                    # print(outputs)
+                    loss = self.criterion(outputs, pseudo_labels) + hat_reg(self.mask_pre,mask)
                 else:
-                    loss = self.criterion(outputs, labels)
+                    loss = self.criterion(outputs, labels) + hat_reg(self.mask_pre,mask)
                 
 
                 self.scaler.scale(loss).backward()
+
+                # Restrict layer gradients in backprop
+                if self.curr_step>0:
+                    for n,p in self.model.named_parameters():
+                        if n in self.mask_back:
+                            p.grad.data*=self.mask_back[n]
+                            print(p.grad.data)
+
+                # Compensate embedding gradients
+                for n, p in self.model.named_parameters():
+                    if 'ec' in n:
+                        if p.grad is not None:
+                            num = torch.cosh(torch.clamp(s * p.data, -thres_cosh, thres_cosh)) + 1
+                            den = torch.cosh(p.data) + 1
+                            p.grad *= self.smax / s * num / den                
+
+
                 self.scaler.step(self.optimizer)
                 self.scaler.update()
+
+                # Constrain embeddings
+                for n, p in self.model.named_parameters():
+                    if 'ec' in n:
+                        if p.grad is not None:
+                            p.data.copy_(torch.clamp(p.data, -thres_emb, thres_emb))
 
                 self.scheduler.step()
                 avg_loss.update(loss.item())
@@ -228,6 +276,7 @@ class Trainer(object):
                 end_time = time.time()
 
                 if (cur_itrs) % 10 == 0:
+                    print(s)
                     print("[%s / step %d] Epoch %d, Itrs %d/%d, Loss=%6f, Time=%.2f , LR=%.8f" %
                         (self.opts.task, self.curr_step, cur_epochs, cur_itrs, total_itrs, 
                         avg_loss.avg, avg_time.avg*1000, self.optimizer.param_groups[0]['lr']))
@@ -253,29 +302,40 @@ class Trainer(object):
                         best_score = curr_score
                         self.save_ckpt(self.ckpt_str % (self.opts.model, self.opts.dataset, self.opts.task, self.curr_step), best_score)
     
+        #update cumulative mask and get the backward mask
+        self.mask_pre = cum_mask(self.model, self.mask_pre, self.curr_step, self.smax)
+        self.mask_back = freeze_mask(self.model, self.mask_pre, self.curr_step, self.smax)
 
     def eval(self, metrics):
-        if self.curr_step > 0:
-            print("... Testing Best Model")
-            best_ckpt = self.ckpt_str % (self.opts.model, self.opts.dataset, self.opts.task, self.curr_step)
-            
-            checkpoint = torch.load(best_ckpt, map_location=torch.device('cpu'))
-            self.model.load_state_dict(checkpoint["model_state"], strict=True)
-            self.model.eval()
-            self.parallel_model = nn.DataParallel(self.model)
-            self.parallel_model.eval()
-            
-            test_score = self.validate(metrics=metrics, loader=self.test_loader)
-            print(metrics.to_str(test_score))
+        # if self.curr_step > 0:
+        print("... Testing Best Model")
+        best_ckpt = self.ckpt_str % (self.opts.model, self.opts.dataset, self.opts.task, self.curr_step)
+        
+        checkpoint = torch.load(best_ckpt, map_location=torch.device('cpu'))
+        self.model.load_state_dict(checkpoint["model_state"], strict=True)
+        self.model.eval()
+        self.parallel_model = nn.DataParallel(self.model)
+        self.parallel_model.eval()
+        
+        test_score = self.validate(metrics=metrics, loader=self.test_loader)
+        print(metrics.to_str(test_score))
 
-            class_iou = list(test_score['Class IoU'].values())
-            class_acc = list(test_score['Class Acc'].values())
-            first_cls = len(get_tasks(self.opts.dataset, self.opts.task, 0))
+        class_iou = list(test_score['Class IoU'].values())
+        class_acc = list(test_score['Class Acc'].values())
+        first_cls = len(get_tasks(self.opts.dataset, self.opts.task, 0))
+
+        if self.curr_step > 0:
 
             print(f"...from 0 to {first_cls-1} : best/test_before_mIoU : %.6f" % np.mean(class_iou[:first_cls]))
             print(f"...from {first_cls} to {len(class_iou)-1} best/test_after_mIoU : %.6f" % np.mean(class_iou[first_cls:]))
             print(f"...from 0 to {first_cls-1} : best/test_before_acc : %.6f" % np.mean(class_acc[:first_cls]))
-            print(f"...from {first_cls} to {len(class_iou)-1} best/test_after_acc : %.6f" % np.mean(class_acc[first_cls:]))       
+            print(f"...from {first_cls} to {len(class_iou)-1} best/test_after_acc : %.6f" % np.mean(class_acc[first_cls:]))    
+            print(f"...overall mIOU: %.6f" % np.mean(class_iou))   
+            print(f"...overall acc: %.6f" % np.mean(class_acc))  
+        else:
+            print(f"...overall mIOU: %.6f" % np.mean(class_iou))   
+            print(f"...overall acc: %.6f" % np.mean(class_acc))      
+        return class_acc, class_iou
 
     def validate(self, metrics, loader):
         """Do validation and return specified samples"""
@@ -288,7 +348,7 @@ class Trainer(object):
                 images = images.to(self.device, dtype=torch.float32, non_blocking=True)
                 labels = labels.to(self.device, dtype=torch.long, non_blocking=True)
                 
-                outputs = self.parallel_model(images)
+                outputs, _ = self.parallel_model(images, self.curr_step, s=self.smax)
                 
                 if self.opts.loss_type == 'bce_loss':
                     outputs = torch.sigmoid(outputs)

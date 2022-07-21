@@ -1,7 +1,16 @@
 import torch
 import torch.nn as nn
 from torch.hub import load_state_dict_from_url
+from utils.tasks import get_tasks
+from arguments import get_argparser
+from copy import deepcopy
+import itertools
+from copy import deepcopy
 
+
+opts = get_argparser().parse_args()
+ntask = len(get_tasks(opts.dataset, opts.task))
+# ntask = 3
 
 __all__ = ['ResNet', 'resnet18', 'resnet34', 'resnet50', 'resnet101',
            'resnet152', 'resnext50_32x4d', 'resnext101_32x8d',
@@ -46,30 +55,55 @@ class BasicBlock(nn.Module):
             raise NotImplementedError("Dilation > 1 not supported in BasicBlock")
         # Both self.conv1 and self.downsample layers downsample the input when stride != 1
         self.conv1 = conv3x3(inplanes, planes, stride)
-        self.bn1 = norm_layer(planes)
+        # self.bn1 = norm_layer(planes)
+        self.bn1 = nn.ModuleList(norm_layer(planes)*ntask)
         self.relu = nn.ReLU(inplace=True)
         self.conv2 = conv3x3(planes, planes)
-        self.bn2 = norm_layer(planes)
+        # self.bn2 = norm_layer(planes)
+        self.bn2 = nn.ModuleList(norm_layer(planes)*ntask)
         self.downsample = downsample
         self.stride = stride
 
-    def forward(self, x):
+        self.gate = torch.nn.Sigmoid()
+        self.ec1 = torch.nn.Embedding(ntask,planes)
+        self.ec2 = torch.nn.Embedding(ntask,planes)
+
+    def mask(self, t, s=1):
+        gc1=self.gate(s*self.ec1(torch.tensor(t)))
+        gc2=self.gate(s*self.ec2(torch.tensor(t)))
+
+        return [gc1, gc2]
+
+    def mask_out(self, out, mask):
+        mask = mask.view(1, -1, 1, 1)
+        out = out * mask.expand_as(out)
+        return out
+
+    def forward(self, x, t, s):
         identity = x
+        masks = self.mask(t, s=s)
+        gc1, gc2 = masks
 
         out = self.conv1(x)
-        out = self.bn1(out)
+        out = self.bn1[t](out)
         out = self.relu(out)
+
+        #gate
+        out = self.mask_out(out, gc1)
 
         out = self.conv2(out)
         out = self.bn2(out)
+
+        #gate
 
         if self.downsample is not None:
             identity = self.downsample(x)
 
         out += identity
         out = self.relu(out)
+        out = self.mask_out(out, gc2)
 
-        return out
+        return out, masks
 
 
 class Bottleneck(nn.Module):
@@ -84,24 +118,54 @@ class Bottleneck(nn.Module):
         # Both self.conv2 and self.downsample layers downsample the input when stride != 1
         self.conv1 = conv1x1(inplanes, width)
         self.bn1 = norm_layer(width)
+        # self.bn1 = nn.ModuleList()
+        # for i in range(ntask):
+        #     self.bn1.append(norm_layer(width))
         self.conv2 = conv3x3(width, width, stride, groups, dilation)
         self.bn2 = norm_layer(width)
+        # self.bn2 = nn.ModuleList()
+        # for i in range(ntask):
+        #     self.bn2.append(norm_layer(width))
         self.conv3 = conv1x1(width, planes * self.expansion)
         self.bn3 = norm_layer(planes * self.expansion)
+        # self.bn3 = nn.ModuleList()
+        # for i in range(ntask):
+        #     self.bn3.append(norm_layer(planes * self.expansion))
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
         self.stride = stride
 
-    def forward(self, x):
+        self.gate = torch.nn.Sigmoid()
+        self.ec1 = torch.nn.Embedding(ntask,width)
+        self.ec2 = torch.nn.Embedding(ntask,width)
+        self.ec3 = torch.nn.Embedding(ntask,planes * self.expansion)
+
+    def mask(self, t, s=1):
+        gc1=self.gate(s*self.ec1(torch.tensor(t,device='cuda')))
+        gc2=self.gate(s*self.ec2(torch.tensor(t,device='cuda')))
+        gc3=self.gate(s*self.ec3(torch.tensor(t,device='cuda')))
+
+        return [gc1, gc2, gc3]
+
+    def mask_out(self, out, mask):
+        mask = mask.view(1, -1, 1, 1)
+        out = out * mask.expand_as(out)
+        return out
+
+    def forward(self, x,t,s):
         identity = x
+        masks = self.mask(t, s=s)
+        gc1, gc2, gc3 = masks
 
         out = self.conv1(x)
         out = self.bn1(out)
         out = self.relu(out)
+        out = self.mask_out(out, gc1)
 
         out = self.conv2(out)
         out = self.bn2(out)
         out = self.relu(out)
+        out = self.mask_out(out, gc2)
 
         out = self.conv3(out)
         out = self.bn3(out)
@@ -111,8 +175,10 @@ class Bottleneck(nn.Module):
 
         out += identity
         out = self.relu(out)
+        out = self.mask_out(out, gc3)
 
-        return out
+
+        return out, masks
 
 
 class ResNet(nn.Module):
@@ -141,6 +207,10 @@ class ResNet(nn.Module):
         self.bn1 = norm_layer(self.inplanes)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        #HAT
+        self.gate = torch.nn.Sigmoid()
+        self.ec0 = torch.nn.Embedding(ntask,64)    
+        
         self.layer1 = self._make_layer(block, 64, layers[0])
         self.layer2 = self._make_layer(block, 128, layers[1], stride=2,
                                        dilate=replace_stride_with_dilation[0])
@@ -168,6 +238,8 @@ class ResNet(nn.Module):
                 elif isinstance(m, BasicBlock):
                     nn.init.constant_(m.bn2.weight, 0)
 
+
+
     def _make_layer(self, block, planes, blocks, stride=1, dilate=False):
         norm_layer = self._norm_layer
         downsample = None
@@ -181,7 +253,7 @@ class ResNet(nn.Module):
                 norm_layer(planes * block.expansion),
             )
 
-        layers = []
+        layers = nn.ModuleList()
         layers.append(block(self.inplanes, planes, stride, downsample, self.groups,
                             self.base_width, previous_dilation, norm_layer))
         self.inplanes = planes * block.expansion
@@ -190,66 +262,60 @@ class ResNet(nn.Module):
                                 base_width=self.base_width, dilation=self.dilation,
                                 norm_layer=norm_layer))
 
-        return nn.Sequential(*layers)
+        return layers
 
-    def forward(self, x):
+    def mask(self, t, s=1):
+        gc0 = self.gate(s * self.ec0(torch.tensor(t, device='cuda')))
+        return gc0
+
+    def mask_out(self, out, mask):
+        mask = mask.view(1, -1, 1, 1)
+        out = out * mask.expand_as(out)
+        return out
+
+    def forward(self, x, t, s):
+        msk = []
+
+        gc0 = self.mask(t, s=s)
+        msk.append([gc0])
+
         x = self.conv1(x)
         x = self.bn1(x)
         x = self.relu(x)
         x = self.maxpool(x)
+        x = self.mask_out(x, gc0)
 
-        x = self.layer1(x)
-        x = self.layer2(x)
-        x = self.layer3(x)
-        x = self.layer4(x)
+        
+        for layer in self.layer1:
+            x, mask = layer(x, t, s)
+            msk.append(mask)
+        for layer in self.layer2:
+            x, mask = layer(x, t, s)
+            msk.append(mask)
+        for layer in self.layer3:
+            x, mask = layer(x,  t, s)
+            msk.append(mask)
+        for layer in self.layer4:
+            x, mask = layer(x, t, s)
+            msk.append(mask)
 
-        x = self.avgpool(x)
-        x = torch.flatten(x, 1)
-        x = self.fc(x)
+        # x = self.avgpool(x)
+        # x = torch.flatten(x, 1)
+        # x = self.fc(x)
 
-        return x
+        return x, list(itertools.chain(*msk))
 
 
 def _resnet(arch, block, layers, pretrained, progress, **kwargs):
     model = ResNet(block, layers, **kwargs)
     if pretrained:
-        state_dict = load_state_dict_from_url(model_urls[arch],
-                                              progress=progress)
-        model.load_state_dict(state_dict)
+        state_dict = load_state_dict_from_url(model_urls[arch])
+        ckp = deepcopy(state_dict)
+        for name,param in model.named_parameters():
+            if name not in state_dict:
+                ckp[name] = torch.rand(param.shape)
+        model.load_state_dict(ckp)
     return model
-
-
-def resnet18(pretrained=False, progress=True, **kwargs):
-    r"""ResNet-18 model from
-    `"Deep Residual Learning for Image Recognition" <https://arxiv.org/pdf/1512.03385.pdf>`_
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-        progress (bool): If True, displays a progress bar of the download to stderr
-    """
-    return _resnet('resnet18', BasicBlock, [2, 2, 2, 2], pretrained, progress,
-                   **kwargs)
-
-
-def resnet34(pretrained=False, progress=True, **kwargs):
-    r"""ResNet-34 model from
-    `"Deep Residual Learning for Image Recognition" <https://arxiv.org/pdf/1512.03385.pdf>`_
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-        progress (bool): If True, displays a progress bar of the download to stderr
-    """
-    return _resnet('resnet34', BasicBlock, [3, 4, 6, 3], pretrained, progress,
-                   **kwargs)
-
-
-def resnet50(pretrained=False, progress=True, **kwargs):
-    r"""ResNet-50 model from
-    `"Deep Residual Learning for Image Recognition" <https://arxiv.org/pdf/1512.03385.pdf>`_
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-        progress (bool): If True, displays a progress bar of the download to stderr
-    """
-    return _resnet('resnet50', Bottleneck, [3, 4, 6, 3], pretrained, progress,
-                   **kwargs)
 
 
 def resnet101(pretrained=False, progress=True, **kwargs):
@@ -261,72 +327,3 @@ def resnet101(pretrained=False, progress=True, **kwargs):
     """
     return _resnet('resnet101', Bottleneck, [3, 4, 23, 3], pretrained, progress,
                    **kwargs)
-
-
-def resnet152(pretrained=False, progress=True, **kwargs):
-    r"""ResNet-152 model from
-    `"Deep Residual Learning for Image Recognition" <https://arxiv.org/pdf/1512.03385.pdf>`_
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-        progress (bool): If True, displays a progress bar of the download to stderr
-    """
-    return _resnet('resnet152', Bottleneck, [3, 8, 36, 3], pretrained, progress,
-                   **kwargs)
-
-
-def resnext50_32x4d(pretrained=False, progress=True, **kwargs):
-    r"""ResNeXt-50 32x4d model from
-    `"Aggregated Residual Transformation for Deep Neural Networks" <https://arxiv.org/pdf/1611.05431.pdf>`_
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-        progress (bool): If True, displays a progress bar of the download to stderr
-    """
-    kwargs['groups'] = 32
-    kwargs['width_per_group'] = 4
-    return _resnet('resnext50_32x4d', Bottleneck, [3, 4, 6, 3],
-                   pretrained, progress, **kwargs)
-
-
-def resnext101_32x8d(pretrained=False, progress=True, **kwargs):
-    r"""ResNeXt-101 32x8d model from
-    `"Aggregated Residual Transformation for Deep Neural Networks" <https://arxiv.org/pdf/1611.05431.pdf>`_
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-        progress (bool): If True, displays a progress bar of the download to stderr
-    """
-    kwargs['groups'] = 32
-    kwargs['width_per_group'] = 8
-    return _resnet('resnext101_32x8d', Bottleneck, [3, 4, 23, 3],
-                   pretrained, progress, **kwargs)
-
-
-def wide_resnet50_2(pretrained=False, progress=True, **kwargs):
-    r"""Wide ResNet-50-2 model from
-    `"Wide Residual Networks" <https://arxiv.org/pdf/1605.07146.pdf>`_
-    The model is the same as ResNet except for the bottleneck number of channels
-    which is twice larger in every block. The number of channels in outer 1x1
-    convolutions is the same, e.g. last block in ResNet-50 has 2048-512-2048
-    channels, and in Wide ResNet-50-2 has 2048-1024-2048.
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-        progress (bool): If True, displays a progress bar of the download to stderr
-    """
-    kwargs['width_per_group'] = 64 * 2
-    return _resnet('wide_resnet50_2', Bottleneck, [3, 4, 6, 3],
-                   pretrained, progress, **kwargs)
-
-
-def wide_resnet101_2(pretrained=False, progress=True, **kwargs):
-    r"""Wide ResNet-101-2 model from
-    `"Wide Residual Networks" <https://arxiv.org/pdf/1605.07146.pdf>`_
-    The model is the same as ResNet except for the bottleneck number of channels
-    which is twice larger in every block. The number of channels in outer 1x1
-    convolutions is the same, e.g. last block in ResNet-50 has 2048-512-2048
-    channels, and in Wide ResNet-50-2 has 2048-1024-2048.
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-        progress (bool): If True, displays a progress bar of the download to stderr
-    """
-    kwargs['width_per_group'] = 64 * 2
-    return _resnet('wide_resnet101_2', Bottleneck, [3, 4, 23, 3],
-                   pretrained, progress, **kwargs)

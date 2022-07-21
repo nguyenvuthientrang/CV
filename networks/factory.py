@@ -22,7 +22,8 @@ def get_backbone(name, backbone_name, output_stride, pretrained_backbone):
     elif name=='deeplabv3':
         return_layers = {'layer4': 'out'}
 
-    return IntermediateLayerGetter(backbone, return_layers=return_layers)
+    # return IntermediateLayerGetter(backbone, return_layers=return_layers)
+    return backbone
 
 
 def get_aspp(output_stride):
