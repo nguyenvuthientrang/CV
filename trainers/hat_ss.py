@@ -163,7 +163,7 @@ class Trainer(object):
         self.train_loader, self.val_loader, self.test_loader, self.memory_loader = self.set_data()
 
         total_itrs = self.opts.train_epoch * len(self.train_loader)
-        val_interval = 40 #max(100, total_itrs // 100)
+        val_interval = max(100, total_itrs // 100)
         print(f"... train epoch : {self.opts.train_epoch} , iterations : {total_itrs} , val_interval : {val_interval}")
 
         avg_loss = AverageMeter()
