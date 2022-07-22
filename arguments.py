@@ -54,7 +54,7 @@ def get_argparser():
                         help="epoch interval for eval (default: 100)")
     
     # CIL options
-    parser.add_argument("--approach", type=str, default='karina',
+    parser.add_argument("--approach", type=str, default='css',
                         choices=['karina', 'ssul'], help='approach')
     parser.add_argument("--pseudo", action='store_true', help="enable pseudo-labeling")
     parser.add_argument("--pseudo_thresh", type=float, default=0.7, help="confidence threshold for pseudo-labeling")

@@ -34,8 +34,8 @@ from copy import deepcopy
 torch.backends.cudnn.benchmark = True
 
 opts = get_argparser().parse_args()
-if opts.approach == 'karina':
-    from trainers.karina import Trainer
+if opts.approach == 'css':
+    from trainers.css import Trainer
 elif opts.approach == 'ssul':
     from trainers.ssul import Trainer
 
