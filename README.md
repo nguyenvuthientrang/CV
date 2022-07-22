@@ -57,6 +57,6 @@ To run the variant version (network masking using hard attention), clone the bra
 $ python main.py --data_root [your data root] --model deeplabv3_resnet101 --overlap --gpu_id 0,1 --crop_val --lr 0.01 --bb_lr 0.0001 --batch_size 16 --train_epoch 50 --loss_type bce_loss --dataset voc --task 2-1 --lr_policy poly --pseudo --pseudo_thresh 0.7 --freeze --bn_freeze --unknown --w_transfer --amp --mem_size 100 --val_interval 100 --lamb 1
 ```
 
-#### References
+## Acknowledgement
 Our implementation is based on
 [clovaai/SSUL](https://github.com/clovaai/SSUL), [k-gyuhak/CLOM](https://github.com/k-gyuhak/CLOM)
