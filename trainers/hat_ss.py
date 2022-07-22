@@ -79,6 +79,7 @@ class Trainer(object):
 
         #reset optimizer
         self.optimizer = self.set_optimizer(training_params)
+        print("Curr_step:", self.curr_step)
         self.reset_settings()
 
 
@@ -192,7 +193,7 @@ class Trainer(object):
             images = images.to(self.device, dtype=torch.float32, non_blocking=True)
             labels = labels.to(self.device, dtype=torch.long, non_blocking=True)
             sal_maps = sal_maps.to(self.device, dtype=torch.long, non_blocking=True)
-            s=(self.smax-1/self.smax)*((cur_itrs%len(self.train_loader))/len(self.train_loader))+1/self.smax
+            s=(self.smax-1/self.smax)*((cur_itrs%len(self.train_loader)+1)/len(self.train_loader))+1/self.smax
             # print("\nsmax:", self.smax)
             # print("Batch:", cur_itrs%len(self.train_loader))
             # print("Total batch:", len(self.train_loader))
@@ -236,8 +237,8 @@ class Trainer(object):
                                                 pred_labels, 
                                                 labels)
                     
-                    # print(pseudo_labels)
-                    # print(outputs)
+                    # print("Pseudo labels:", pseudo_labels)
+                    # print("Pseudo labels:", outputs)
                     loss = self.criterion(outputs, pseudo_labels) + hat_reg(self.mask_pre,mask)
                 else:
                     loss = self.criterion(outputs, labels) + hat_reg(self.mask_pre,mask)
@@ -245,14 +246,14 @@ class Trainer(object):
 
                 self.scaler.scale(loss).backward()
 
-                # Restrict layer gradients in backprop
+                #Restrict layer gradients in backprop
                 if self.curr_step>0:
                     for n,p in self.model.named_parameters():
                         if n in self.mask_back:
                             p.grad.data*=self.mask_back[n]
                             print(p.grad.data)
 
-                # Compensate embedding gradients
+                #Compensate embedding gradients
                 for n, p in self.model.named_parameters():
                     if 'ec' in n:
                         if p.grad is not None:
@@ -264,7 +265,7 @@ class Trainer(object):
                 self.scaler.step(self.optimizer)
                 self.scaler.update()
 
-                # Constrain embeddings
+                #Constrain embeddings
                 for n, p in self.model.named_parameters():
                     if 'ec' in n:
                         if p.grad is not None:

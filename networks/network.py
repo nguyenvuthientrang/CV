@@ -109,7 +109,7 @@ class Net(nn.Module):
 
             for param in self.backbone.parameters():
                 param.requires_grad = True
-            training_params.append({'params': self.backbone.parameters(), 'lr': opts.lr})
+            training_params.append({'params': self.backbone.parameters(), 'lr': opts.bb_lr})
 
 
             #last head
@@ -143,16 +143,16 @@ class Net(nn.Module):
 
         return training_params
 
-    # def train(self, mode=True):
-    #     super(Net, self).train(mode=mode)
+    def train(self, mode=True):
+        super(Net, self).train(mode=mode)
         
-    #     if self.bn_freeze:
-    #         for m in self.modules():
-    #             if isinstance(m, nn.BatchNorm2d):
-    #                 m.eval()
+        if opts.bn_freeze:
+            for m in self.modules():
+                if isinstance(m, nn.BatchNorm2d):
+                    m.eval()
                     
-    #                 m.weight.requires_grad = False
-    #                 m.bias.requires_grad = False
+                    m.weight.requires_grad = False
+                    m.bias.requires_grad = False
 
 
 def _load_model(arch_type, backbone, output_stride, pretrained_backbone):

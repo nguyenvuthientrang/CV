@@ -1,9 +1,3 @@
-"""
-SSUL
-Copyright (c) 2021-present NAVER Corp.
-MIT License
-"""
-
 import math
 import json
 import os
@@ -63,7 +57,7 @@ def memory_sampling_balanced(opts, curr_step, prev_model):
                 images = images.cuda()
                 targets = targets.cuda()
 
-                outputs = prev_model(images)
+                outputs,_ = prev_model(images, curr_step-1, opts.smax)
                 
                 if opts.loss_type == 'ce_loss':
                     pred_logits = torch.softmax(outputs, 1).detach()

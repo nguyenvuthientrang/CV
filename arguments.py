@@ -26,6 +26,8 @@ def get_argparser():
     parser.add_argument("--curr_itrs", type=int, default=0)
     parser.add_argument("--lr", type=float, default=0.01,
                         help="learning rate (default: 0.01)")
+    parser.add_argument("--bb_lr", type=float, default=0.001,
+                        help="learning rate (default: 0.01)")
     parser.add_argument("--lr_policy", type=str, default='warm_poly', choices=['poly', 'step', 'warm_poly'],
                         help="learning rate scheduler")
     parser.add_argument("--step_size", type=int, default=10000)

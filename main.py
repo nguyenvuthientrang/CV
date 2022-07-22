@@ -84,8 +84,8 @@ trainer = Trainer(opts, model, device)
 
 utils.mkdir('checkpoints')
 
-cls_num = len(list(itertools.chain(*list(get_tasks('voc', '15-1').values()))))
-t_num = len(get_tasks('voc', '15-1'))
+cls_num = len(list(itertools.chain(*list(get_tasks(opts.dataset, opts.task).values()))))
+t_num = len(get_tasks(opts.dataset, opts.task))
 acc=np.zeros((t_num, cls_num),dtype=np.float32)
 miou=np.zeros((t_num, cls_num),dtype=np.float32)
 for step in range(start_step, total_step):
