@@ -59,4 +59,4 @@ $ python main.py --data_root [your data root] --model deeplabv3_resnet101 --over
 
 ## Acknowledgement
 Our implementation is based on
-[clovaai/SSUL](https://github.com/clovaai/SSUL), [k-gyuhak/CLOM](https://github.com/k-gyuhak/CLOM)
+[clovaai/SSUL](https://github.com/clovaai/SSUL), [k-gyuhak/CLOM](https://github.com/k-gyuhak/CLOM).
