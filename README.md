@@ -42,7 +42,7 @@ Download [SegmentationClassAug](https://drive.google.com/file/d/17ylg3RHZCQRyGVk
 
 ## Perform Training
 
-Check the [demo](https://colab.research.google.com/drive/1pRt8ulk5UVfzABPjWeTlIVVFWwqRvSkq?usp=sharing) for a intuitive guideline. In particular, clone the needed branch and customize the command:
+Check the [demo](https://colab.research.google.com/drive/1pRt8ulk5UVfzABPjWeTlIVVFWwqRvSkq?usp=sharing) for a intuitive guideline. In particular, to run the command:
 ```
 python main.py --data_root ${DATA_ROOT} --approach ${APPROACH} --model deeplabv3_resnet101 --gpu_id 0,1 --crop_val --lr ${LR} --batch_size ${BATCH} --train_epoch ${EPOCH} --loss_type ${LOSS} --dataset ${DATASET} --task ${TASK} --overlap --lr_policy poly --pseudo --pseudo_thresh ${THRESH} --freeze --bn_freeze --unknown --w_transfer --amp --mem_size ${MEMORY}
 ```
