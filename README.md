@@ -1,5 +1,5 @@
 # CV
-This [repository](https://github.com/nguyenvuthientrang/CV) contains all of our code for DSAI | K64 | HUST | Computer Vison project.
+This [repository](https://github.com/nguyenvuthientrang/CV) contains all of our code for DSAI | K64 | HUST | Computer Vision project.
 
 ## Dataset
 
