@@ -26,6 +26,9 @@ def get_argparser():
     parser.add_argument("--curr_itrs", type=int, default=0)
     parser.add_argument("--lr", type=float, default=0.01,
                         help="learning rate (default: 0.01)")
+    parser.add_argument("--bb_lr", type=float, default=0.001,
+                        help="learning rate (default: 0.01)")
+    
     parser.add_argument("--lr_policy", type=str, default='warm_poly', choices=['poly', 'step', 'warm_poly'],
                         help="learning rate scheduler")
     parser.add_argument("--step_size", type=int, default=10000)
@@ -55,7 +58,7 @@ def get_argparser():
     
     # CIL options
     parser.add_argument("--approach", type=str, default='css',
-                        choices=['karina', 'ssul'], help='approach')
+                        choices=['css', 'ssul', 'hat_ss'], help='approach')
     parser.add_argument("--pseudo", action='store_true', help="enable pseudo-labeling")
     parser.add_argument("--pseudo_thresh", type=float, default=0.7, help="confidence threshold for pseudo-labeling")
     parser.add_argument("--task", type=str, default='15-1', help="cil task")
@@ -66,5 +69,15 @@ def get_argparser():
     parser.add_argument("--bn_freeze", action='store_true', help="enable batchnorm freezing")
     parser.add_argument("--w_transfer", action='store_true', help="enable weight transfer")
     parser.add_argument("--unknown", action='store_true', help="enable unknown modeling")
-    
+
+    #Dropouts
+    parser.add_argument("--head_dropout", type=float, default=0.25)
+    parser.add_argument("--conv_dropout", type=float, default=0.25) 
+    parser.add_argument("--lin_dropout", type=float, default=0.25)
+    parser.add_argument("--prj_dropout", type=float, default=0.25)
+
+    #HAT
+    parser.add_argument("--smax", type=int, default=400)
+    parser.add_argument("--lamb", type=float, default=0.25)  
+      
     return parser

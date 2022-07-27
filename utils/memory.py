@@ -1,9 +1,3 @@
-"""
-SSUL
-Copyright (c) 2021-present NAVER Corp.
-MIT License
-"""
-
 import math
 import json
 import os
@@ -15,6 +9,7 @@ from torch.utils import data
 from dataloaders import VOCSegmentation, ADESegmentation
 from utils import ext_transforms as et
 from utils.tasks import get_tasks
+from arguments import get_argparser
 
 def memory_sampling_balanced(opts, curr_step, prev_model):
     
@@ -63,7 +58,10 @@ def memory_sampling_balanced(opts, curr_step, prev_model):
                 images = images.cuda()
                 targets = targets.cuda()
 
-                outputs = prev_model(images)
+                if opts.approach == 'css':
+                    outputs = prev_model(images)
+                else:
+                    outputs,_ = prev_model(images, curr_step-1, opts.smax)
                 
                 if opts.loss_type == 'ce_loss':
                     pred_logits = torch.softmax(outputs, 1).detach()

@@ -1,9 +1,3 @@
-"""
-SSUL
-Copyright (c) 2021-present NAVER Corp.
-MIT License
-"""
-
 import os
 import sys
 import torch.utils.data as data

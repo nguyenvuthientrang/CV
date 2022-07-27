@@ -1,9 +1,3 @@
-"""
-SSUL
-Copyright (c) 2021-present NAVER Corp.
-MIT License
-"""
-
 from tqdm import tqdm
 import networks
 import utils
@@ -26,7 +20,7 @@ from metrics import StreamSegMetrics
 from PIL import Image
 import matplotlib
 import matplotlib.pyplot as plt
-from networks import network
+# from networks import network
 import itertools
 from copy import deepcopy
 
@@ -36,12 +30,20 @@ torch.backends.cudnn.benchmark = True
 opts = get_argparser().parse_args()
 if opts.approach == 'css':
     from trainers.css import Trainer
+    from networks import network
+elif opts.approach == 'hat_ss':
+    from trainers.hat_ss import Trainer
+    from networks import network_hat as network
 elif opts.approach == 'ssul':
     from trainers.ssul import Trainer
 
-
-log_name = '{}_{}_{}_{}_model_{}_epoch_{}_batchsize_{}_memsize_{}_lr{}'.format(opts.dataset, opts.task, opts.approach, opts.random_seed,
+if opts.approach == 'css':
+    log_name = '{}_{}_{}_{}_model_{}_epoch_{}_batchsize_{}_memsize_{}_lr{}'.format(opts.dataset, opts.task, opts.approach, opts.random_seed,
                                                                     opts.model, opts.train_epoch, opts.batch_size, 
+                                                                    opts.mem_size, opts.lr)
+elif opts.approach == 'hat_ss':
+    log_name = '{}_{}_{}_{}_model_{}_smax_{}_lamb_{}_epoch_{}_batchsize_{}_memsize_{}_lr{}'.format(opts.dataset, opts.task, opts.approach, opts.random_seed,
+                                                                    opts.model, opts.smax, opts.lamb, opts.train_epoch, opts.batch_size, 
                                                                     opts.mem_size, opts.lr)
 
 output = opts.dataset + '/' + opts.task + '/' + opts.approach + '/' + log_name + '.txt'
@@ -109,7 +111,10 @@ for step in range(start_step, total_step):
     metrics = StreamSegMetrics(sum(num_classes)-1 if opts.unknown else sum(num_classes), dataset=opts.dataset)
 
     # Set up optimizer & parameters
-    trainer.add_classes(num_classes[-1])
+    if opts.approach == 'css':
+        trainer.add_classes(num_classes[-1])
+    elif opts.approach == 'hat_ss':
+        trainer.add_classes(num_classes[-1], curr_step)
 
     print("----------- trainable parameters --------------")
     for name, param in trainer.model.named_parameters():

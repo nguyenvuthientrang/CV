@@ -3,6 +3,14 @@ from torch import nn
 from .backbone import resnet
 from ._deeplab import DeepLabHeadV3Plus, DeepLabHead, ASPP
 from collections import OrderedDict
+from arguments import get_argparser
+
+opts = get_argparser().parse_args()
+
+if opts.approach == 'css':
+    from .backbone import resnet
+elif opts.approach == 'hat_ss':
+    from .backbone import resnet_hat as resnet
 
 def get_backbone(name, backbone_name, output_stride, pretrained_backbone):
     if output_stride==8:
@@ -22,7 +30,10 @@ def get_backbone(name, backbone_name, output_stride, pretrained_backbone):
     elif name=='deeplabv3':
         return_layers = {'layer4': 'out'}
 
-    return IntermediateLayerGetter(backbone, return_layers=return_layers)
+    if opts.approach == 'css':
+        return IntermediateLayerGetter(backbone, return_layers=return_layers)
+    else:
+        return backbone
 
 
 def get_aspp(output_stride):
